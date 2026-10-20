@@ -9,6 +9,8 @@ middle, the live audience preview and layer controls on the right, and a bin of 
 messages, timers and themes along the bottom. The audience output and the stage display each
 open in their own window, ready to drag onto a projector or confidence monitor.
 
+![Show mode](docs/screenshots/show.png)
+
 ## Running
 
 ```sh
@@ -51,6 +53,10 @@ On Linux the usual X11/Wayland desktop libraries are needed (`libxkbcommon-x11`,
   full screen, Esc to leave.
 - **Safe saving.** The library autosaves a second after each change with crash-safe atomic writes,
   and a damaged library file is never overwritten.
+
+| Edit mode | Stage display and audience output |
+|---|---|
+| ![Edit mode](docs/screenshots/edit.png) | ![Outputs](docs/screenshots/outputs.png) |
 
 ## Roadmap
 
