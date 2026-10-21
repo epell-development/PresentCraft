@@ -9,6 +9,7 @@ use crate::app::{App, Mode, NewPresentation};
 pub fn show(app: &mut App, ui: &mut Ui) {
     let style = theme::toolbar_button();
     let (mut bin, mut stage, mut audience) = (app.prefs.get().layout.show_media_bin, app.stage_open, app.audience_open);
+    let mut screens = app.screens_open;
     let save_state = if let Some(err) = &app.autosave.last_error {
         Some((RichText::new("Not saved").color(theme::DANGER), Some(err.clone())))
     } else if app.autosave.is_dirty() {
@@ -24,8 +25,11 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             ui.horizontal_centered(|ui| {
                 left(app, ui, &style);
                 // Right-aligned group: reserve its width so the captioned buttons keep their order.
-                let right_width = 3.0 * 50.0 + 100.0;
+                let right_width = 4.0 * 50.0 + 100.0;
                 ui.add_space((ui.available_width() - right_width).max(0.0));
+                if icons::tool(ui, Icon::Props, "Screens", screens, &style).on_hover_text("Where the output windows go").clicked() {
+                    screens = !screens;
+                }
                 if icons::tool(ui, Icon::Screen, "Audience", audience, &style).on_hover_text("Audience output window (Ctrl+1)").clicked() {
                     audience = !audience;
                 }
@@ -49,6 +53,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         app.prefs.update(|p| p.layout.show_media_bin = bin);
     }
     app.stage_open = stage;
+    app.screens_open = screens;
     app.audience_open = audience;
     if !app.notices.is_empty() {
         egui::Panel::top("notices").frame(egui::Frame::new().fill(egui::Color32::from_rgb(90, 60, 20)).inner_margin(6)).show(ui, |ui| {
@@ -71,7 +76,12 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 fn left(app: &mut App, ui: &mut Ui, style: &craft_ui::buttons::IconButtonStyle) {
     ui.label(RichText::new("PresentCraft").strong().size(15.0).color(theme::TEXT));
     ui.add_space(14.0);
-    for (mode, icon, label) in [(Mode::Show, Icon::Show, "Show"), (Mode::Edit, Icon::Edit, "Edit"), (Mode::Reflow, Icon::Reflow, "Reflow")] {
+    for (mode, icon, label) in [
+        (Mode::Show, Icon::Show, "Show"),
+        (Mode::Edit, Icon::Edit, "Edit"),
+        (Mode::Reflow, Icon::Reflow, "Reflow"),
+        (Mode::Bible, Icon::Bible, "Bible"),
+    ] {
         if icons::tool(ui, icon, label, app.mode == mode, style).clicked() {
             app.mode = mode;
             if mode == Mode::Edit && app.selected_slide.is_none() {

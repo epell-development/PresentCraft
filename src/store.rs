@@ -18,6 +18,40 @@ pub const APP_ID: &str = "presentcraft";
 pub struct Prefs {
     pub show: ShowPrefs,
     pub layout: LayoutPrefs,
+    pub outputs: OutputPrefs,
+}
+
+/// Where an output window sits on the desktop. Positions are in desktop points, so a projector
+/// to the right of a 1920-wide main display starts at x = 1920.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
+#[serde(default)]
+pub struct ScreenPrefs {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub fullscreen: bool,
+}
+
+impl Default for ScreenPrefs {
+    fn default() -> Self {
+        Self { x: 80.0, y: 80.0, width: 960.0, height: 540.0, fullscreen: false }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[serde(default)]
+pub struct OutputPrefs {
+    pub audience: ScreenPrefs,
+    pub stage: ScreenPrefs,
+    /// Open the output windows when PresentCraft starts.
+    pub open_on_launch: bool,
+}
+
+impl Default for OutputPrefs {
+    fn default() -> Self {
+        Self { audience: ScreenPrefs::default(), stage: ScreenPrefs { x: 160.0, y: 160.0, ..ScreenPrefs::default() }, open_on_launch: false }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]

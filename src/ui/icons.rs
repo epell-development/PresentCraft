@@ -22,6 +22,8 @@ pub enum Icon {
     Prev,
     Next,
     Bin,
+    Bible,
+    Audio,
 }
 
 pub fn paint(p: &Painter, rect: Rect, icon: Icon, color: Color32) {
@@ -104,6 +106,20 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, color: Color32) {
         }
         Icon::Next => {
             p.add(Shape::convex_polygon(vec![pt(-0.35, -0.5), pt(0.4, 0.0), pt(-0.35, 0.5)], color, Stroke::NONE));
+        }
+        Icon::Bible => {
+            p.rect_stroke(r(-0.55, -0.6, 0.55, 0.6), 2.0, stroke, egui::StrokeKind::Middle);
+            p.line_segment([pt(0.0, -0.35), pt(0.0, 0.2)], stroke);
+            p.line_segment([pt(-0.22, -0.15), pt(0.22, -0.15)], stroke);
+        }
+        Icon::Audio => {
+            p.add(Shape::convex_polygon(
+                vec![pt(-0.6, -0.2), pt(-0.3, -0.2), pt(0.05, -0.55), pt(0.05, 0.55), pt(-0.3, 0.2), pt(-0.6, 0.2)],
+                color,
+                Stroke::NONE,
+            ));
+            p.add(Shape::Path(egui::epaint::PathShape::line(arc(c, s * 0.42, -0.8, 0.8), stroke)));
+            p.add(Shape::Path(egui::epaint::PathShape::line(arc(c, s * 0.68, -0.8, 0.8), stroke)));
         }
         Icon::Bin => {
             p.rect_stroke(r(-0.7, -0.3, 0.7, 0.5), 2.0, stroke, egui::StrokeKind::Middle);

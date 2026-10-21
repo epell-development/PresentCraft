@@ -19,6 +19,7 @@ enum Action {
     Copy(Id),
     PasteAfter(Id),
     SetMedia(Id, Option<Id>),
+    SetAudio(Id, Option<Id>),
     GroupColor(Id, Rgba),
     SplitGroup(Id),
     RenameGroup(Id, String),
@@ -43,7 +44,10 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let thumb_w = app.prefs.get().layout.thumbnail_width.clamp(120.0, 480.0);
     let thumb_h = thumb_w * CANVAS_H / CANVAS_W;
     let live = app.live.slide.filter(|l| l.presentation == p.id).map(|l| l.slide);
-    let media: Vec<(Id, String)> = app.lib.media.iter().map(|m| (m.id, m.name.clone())).collect();
+    let media: Vec<(Id, String)> =
+        app.lib.media.iter().filter(|m| !matches!(m.source, MediaSource::Audio { .. })).map(|m| (m.id, m.name.clone())).collect();
+    let audio: Vec<(Id, String)> =
+        app.lib.media.iter().filter(|m| matches!(m.source, MediaSource::Audio { .. })).map(|m| (m.id, m.name.clone())).collect();
 
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         ui.add_space(8.0);
@@ -74,11 +78,17 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                         egui::FontId::proportional(12.0),
                         Color32::WHITE,
                     );
-                    if slide.media_action.is_some() {
+                    let cues = match (slide.media_action.is_some(), slide.audio_action.is_some()) {
+                        (true, true) => "▣ ♪",
+                        (true, false) => "▣",
+                        (false, true) => "♪",
+                        (false, false) => "",
+                    };
+                    if !cues.is_empty() {
                         ui.painter().text(
                             bar.right_center() - vec2(6.0, 0.0),
                             egui::Align2::RIGHT_CENTER,
-                            "▣",
+                            cues,
                             egui::FontId::proportional(12.0),
                             Color32::WHITE,
                         );
@@ -111,7 +121,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                         actions.push(Action::Edit(slide.id));
                     }
                     let sid = slide.id;
-                    r.context_menu(|ui| slide_menu(ui, sid, slide, group, &media, app.clipboard.is_some(), &mut actions));
+                    r.context_menu(|ui| slide_menu(ui, sid, slide, group, (&media, &audio), app.clipboard.is_some(), &mut actions));
                 }
             }
         });
@@ -122,7 +132,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     apply(app, p.id, actions);
 }
 
-fn slide_menu(ui: &mut Ui, sid: Id, slide: &Slide, group: &Group, media: &[(Id, String)], can_paste: bool, actions: &mut Vec<Action>) {
+type Choices<'a> = (&'a [(Id, String)], &'a [(Id, String)]);
+
+fn slide_menu(ui: &mut Ui, sid: Id, slide: &Slide, group: &Group, (media, audio): Choices, can_paste: bool, actions: &mut Vec<Action>) {
     if ui.button("Edit slide").clicked() {
         actions.push(Action::Edit(sid));
     }
@@ -151,6 +163,16 @@ fn slide_menu(ui: &mut Ui, sid: Id, slide: &Slide, group: &Group, media: &[(Id, 
         for (id, name) in media {
             if ui.selectable_label(slide.media_action == Some(*id), name).clicked() {
                 actions.push(Action::SetMedia(sid, Some(*id)));
+            }
+        }
+    });
+    ui.menu_button("Audio action", |ui| {
+        if ui.selectable_label(slide.audio_action.is_none(), "None").clicked() {
+            actions.push(Action::SetAudio(sid, None));
+        }
+        for (id, name) in audio {
+            if ui.selectable_label(slide.audio_action == Some(*id), name).clicked() {
+                actions.push(Action::SetAudio(sid, Some(*id)));
             }
         }
     });
@@ -324,6 +346,11 @@ fn edit(app: &mut App, pid: Id, action: Action) {
         Action::SetMedia(sid, media) => {
             if let Some(s) = p.find_slide_mut(sid) {
                 s.media_action = media;
+            }
+        }
+        Action::SetAudio(sid, audio) => {
+            if let Some(s) = p.find_slide_mut(sid) {
+                s.audio_action = audio;
             }
         }
         Action::GroupColor(gid, color) => {

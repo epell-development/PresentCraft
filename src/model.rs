@@ -118,6 +118,9 @@ pub struct Slide {
     /// Media to fire on the media layer when this slide is triggered.
     #[serde(default)]
     pub media_action: Option<Id>,
+    /// Audio to start when this slide is triggered.
+    #[serde(default)]
+    pub audio_action: Option<Id>,
     #[serde(default)]
     pub notes: String,
     #[serde(default = "yes")]
@@ -253,8 +256,10 @@ pub struct Playlist {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum MediaSource {
-    /// A still image on disk.
+    /// An image on disk: a still, or an animated GIF that loops.
     Image { path: String },
+    /// A sound file (MP3, WAV, FLAC, Ogg Vorbis) for the audio layer.
+    Audio { path: String },
     /// A generated solid color, handy for backgrounds without files.
     Color { color: Rgba },
     /// A generated two-color vertical gradient.
@@ -430,6 +435,7 @@ impl Library {
             elements,
             background: theme.and_then(|t| t.background),
             media_action: None,
+            audio_action: None,
             notes: String::new(),
             enabled: true,
         }
@@ -516,6 +522,9 @@ impl Library {
             for s in p.groups.iter_mut().flat_map(|g| g.slides.iter_mut()) {
                 if s.media_action == Some(id) {
                     s.media_action = None;
+                }
+                if s.audio_action == Some(id) {
+                    s.audio_action = None;
                 }
                 s.elements.retain(|e| !matches!(e.kind, ElementKind::Media { media } if media == id));
             }

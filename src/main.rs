@@ -4,6 +4,8 @@
 //! PresentCraft: live presentation software for services, events and broadcast.
 
 mod app;
+mod audio;
+mod bible;
 mod live;
 mod model;
 mod render;

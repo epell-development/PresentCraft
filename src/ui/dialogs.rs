@@ -59,3 +59,72 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         app.new_presentation = Some(np);
     }
 }
+
+/// The Screens window: where each output opens, its size, and full screen.
+pub fn screens(app: &mut App, ctx: &egui::Context) {
+    if !app.screens_open {
+        return;
+    }
+    let mut open = true;
+    let mut outputs = app.prefs.get().outputs.clone();
+    // egui reports the size of the display the main window is on; a second display usually starts
+    // where the first one ends.
+    let monitor = ctx.input(|i| i.viewport().monitor_size);
+    egui::Window::new("Screens").open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+        if let Some(m) = monitor {
+            ui.label(RichText::new(format!("This display is {} × {}.", m.x.round(), m.y.round())).color(theme::TEXT_DIM));
+        }
+        for (label, screen, window_open) in
+            [("Audience", &mut outputs.audience, &mut app.audience_open), ("Stage", &mut outputs.stage, &mut app.stage_open)]
+        {
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(label).strong());
+                ui.checkbox(window_open, "Open");
+                ui.checkbox(&mut screen.fullscreen, "Full screen");
+            });
+            egui::Grid::new(label).num_columns(4).show(ui, |ui| {
+                ui.label("X");
+                ui.add(egui::DragValue::new(&mut screen.x).speed(4.0));
+                ui.label("Y");
+                ui.add(egui::DragValue::new(&mut screen.y).speed(4.0));
+                ui.end_row();
+                ui.label("Width");
+                ui.add(egui::DragValue::new(&mut screen.width).speed(4.0).range(320.0..=8192.0));
+                ui.label("Height");
+                ui.add(egui::DragValue::new(&mut screen.height).speed(4.0).range(180.0..=8192.0));
+                ui.end_row();
+            });
+            ui.horizontal(|ui| {
+                if ui.button("This display").clicked() {
+                    screen.x = 40.0;
+                    screen.y = 40.0;
+                    screen.fullscreen = false;
+                }
+                if let Some(m) = monitor
+                    && ui
+                        .button("Display to the right")
+                        .on_hover_text("Moves the window past the right edge of this display and makes it full screen")
+                        .clicked()
+                {
+                    screen.x = m.x;
+                    screen.y = 0.0;
+                    screen.fullscreen = true;
+                }
+                for (w, h) in [(1280.0, 720.0), (1920.0, 1080.0)] {
+                    if ui.button(format!("{w}×{h}")).clicked() {
+                        screen.width = w;
+                        screen.height = h;
+                    }
+                }
+            });
+        }
+        ui.separator();
+        ui.checkbox(&mut outputs.open_on_launch, "Open both outputs when PresentCraft starts");
+        ui.label(RichText::new("Tip: double-click an output to toggle full screen; Esc leaves it.").color(theme::TEXT_DIM));
+    });
+    if outputs != app.prefs.get().outputs {
+        app.prefs.update(|p| p.outputs = outputs);
+    }
+    app.screens_open = open;
+}
