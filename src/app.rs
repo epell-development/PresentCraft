@@ -6,6 +6,8 @@ use std::time::{Duration, Instant};
 
 use craft_settings::{Location, SaveStatus, SettingsStore};
 
+use crate::audio::AudioEngine;
+use crate::bible::{self, Bible};
 use crate::live::Live;
 use crate::model::*;
 use crate::render::MediaCache;
@@ -17,11 +19,13 @@ pub enum Mode {
     Show,
     Edit,
     Reflow,
+    Bible,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BinTab {
     Media,
+    Audio,
     Props,
     Messages,
     Timers,
@@ -29,11 +33,12 @@ pub enum BinTab {
 }
 
 impl BinTab {
-    pub const ALL: [BinTab; 5] = [BinTab::Media, BinTab::Props, BinTab::Messages, BinTab::Timers, BinTab::Themes];
+    pub const ALL: [BinTab; 6] = [BinTab::Media, BinTab::Audio, BinTab::Props, BinTab::Messages, BinTab::Timers, BinTab::Themes];
 
     pub fn label(self) -> &'static str {
         match self {
             BinTab::Media => "Media",
+            BinTab::Audio => "Audio",
             BinTab::Props => "Props",
             BinTab::Messages => "Messages",
             BinTab::Timers => "Timers",
@@ -59,6 +64,35 @@ pub struct NewPresentation {
     pub add_to_playlist: bool,
 }
 
+/// The scripture panel's inputs.
+pub struct ScriptureUi {
+    pub bible: usize,
+    pub reference: String,
+    pub search: String,
+    pub per_slide: usize,
+    pub verse_numbers: bool,
+    pub theme: Option<Id>,
+    pub import_path: String,
+    pub import_name: String,
+    pub import_abbreviation: String,
+}
+
+impl Default for ScriptureUi {
+    fn default() -> Self {
+        Self {
+            bible: 0,
+            reference: "Psalm 23".into(),
+            search: String::new(),
+            per_slide: 1,
+            verse_numbers: true,
+            theme: None,
+            import_path: String::new(),
+            import_name: String::new(),
+            import_abbreviation: String::new(),
+        }
+    }
+}
+
 /// An in-progress drag on the editor canvas.
 #[derive(Clone, Copy, Debug)]
 pub struct CanvasDrag {
@@ -68,10 +102,16 @@ pub struct CanvasDrag {
     pub start: Frame,
 }
 
+/// File extensions imported as sound rather than pictures.
+pub const AUDIO_EXTENSIONS: &[&str] = &["mp3", "wav", "flac", "ogg", "oga"];
+
 pub struct App {
     pub lib: Library,
     pub live: Live,
     pub cache: MediaCache,
+    pub audio: AudioEngine,
+    pub bibles: Vec<Bible>,
+    pub scripture: ScriptureUi,
     pub prefs: SettingsStore<Prefs>,
     pub autosave: Autosave,
     pub path: Option<PathBuf>,
@@ -94,6 +134,7 @@ pub struct App {
 
     pub audience_open: bool,
     pub stage_open: bool,
+    pub screens_open: bool,
     pub notices: Vec<String>,
 }
 
@@ -132,12 +173,22 @@ impl App {
                 _ => None,
             })
         });
+        let (bibles, notices) = {
+            let (b, errors) = bible::load_all(bible::bibles_dir(path.as_deref()).as_deref());
+            let mut n = notices;
+            n.extend(errors);
+            (b, n)
+        };
+        let open_outputs = prefs.get().outputs.open_on_launch;
         let mut live = Live { playlist: selected_playlist, ..Default::default() };
         live.transition = Duration::from_millis(u64::from(prefs.get().show.transition_ms));
         Self {
             lib,
             live,
             cache: MediaCache::default(),
+            audio: AudioEngine::new(),
+            bibles,
+            scripture: ScriptureUi::default(),
             prefs,
             autosave,
             path,
@@ -156,8 +207,9 @@ impl App {
             import_path: String::new(),
             canvas_drag: None,
             clipboard: None,
-            audience_open: false,
-            stage_open: false,
+            audience_open: open_outputs,
+            stage_open: open_outputs,
+            screens_open: false,
             notices,
         }
     }
@@ -174,6 +226,23 @@ impl App {
     pub fn trigger(&mut self, presentation: Id, slide: Id) {
         self.live.trigger(&self.lib, presentation, slide, Instant::now());
         self.selected_slide = Some(slide);
+        let audio = self.lib.presentation(presentation).and_then(|p| p.find_slide(slide)).and_then(|(_, s)| s.audio_action);
+        if let Some(a) = audio {
+            self.play_audio(a);
+        }
+    }
+
+    /// Start an audio item on the audio layer, or report why it cannot play.
+    pub fn play_audio(&mut self, id: Id) {
+        if let Some(MediaSource::Audio { path }) = self.lib.media_item(id).map(|m| m.source.clone()) {
+            self.audio.play_reporting(id, &path);
+        }
+    }
+
+    /// Clear All also silences the audio layer.
+    pub fn clear_all(&mut self) {
+        self.live.clear_all(Instant::now());
+        self.audio.stop();
     }
 
     pub fn go_next(&mut self) {
@@ -224,7 +293,10 @@ impl App {
             }
         }
         if pressed(Key::F1) {
-            self.live.clear_all(now);
+            self.clear_all();
+        }
+        if pressed(Key::F7) {
+            self.audio.stop();
         }
         if pressed(Key::F2) {
             self.live.clear_slide(now);
@@ -275,14 +347,14 @@ impl App {
             return;
         }
         let name = std::path::Path::new(path).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| path.to_string());
+        let ext = std::path::Path::new(path).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+        let (source, bin) = if AUDIO_EXTENSIONS.contains(&ext.as_str()) {
+            (MediaSource::Audio { path: path.to_string() }, "Audio")
+        } else {
+            (MediaSource::Image { path: path.to_string() }, "Imported")
+        };
         let id = self.lib.next_id();
-        self.lib.media.push(MediaItem {
-            id,
-            name,
-            source: MediaSource::Image { path: path.to_string() },
-            fit: MediaFit::Fill,
-            bin: "Imported".into(),
-        });
+        self.lib.media.push(MediaItem { id, name, source, fit: MediaFit::Fill, bin: bin.into() });
         self.changed();
     }
 
@@ -290,6 +362,8 @@ impl App {
     pub fn frame(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         let now = Instant::now();
+        self.cache.animating = false;
+        self.audio.tick();
         self.keyboard(&ctx);
         self.dropped_files(&ctx);
 
@@ -303,15 +377,20 @@ impl App {
             Mode::Show => ui::grid::show(self, ui),
             Mode::Edit => ui::editor::show(self, ui),
             Mode::Reflow => ui::reflow::show(self, ui),
+            Mode::Bible => ui::scripture::show(self, ui),
         });
         ui::bin::refresh_message(self, now);
         ui::dialogs::show(self, &ctx);
+        ui::dialogs::screens(self, &ctx);
         ui::outputs::show(self, &ctx);
 
         // Keep the clock, timers and fades moving; outputs are live even with no input.
-        let animating = self.live.fade(self.live.slide_changed, now) < 1.0 || self.live.fade(self.live.media_changed, now) < 1.0;
+        let animating =
+            self.live.fade(self.live.slide_changed, now) < 1.0 || self.live.fade(self.live.media_changed, now) < 1.0 || self.cache.animating;
         if animating {
             ctx.request_repaint();
+        } else if self.audio.is_playing() {
+            ctx.request_repaint_after(Duration::from_millis(100));
         } else {
             ctx.request_repaint_after(Duration::from_millis(250));
         }
@@ -371,7 +450,7 @@ mod tests {
         let mut app = App::in_memory(store::demo_library());
         app.audience_open = true;
         app.stage_open = true;
-        for mode in [Mode::Show, Mode::Edit, Mode::Reflow] {
+        for mode in [Mode::Show, Mode::Edit, Mode::Reflow, Mode::Bible] {
             app.mode = mode;
             for tab in BinTab::ALL {
                 app.bin_tab = tab;
@@ -379,7 +458,9 @@ mod tests {
             }
         }
         app.new_presentation = Some(NewPresentation::default());
+        app.screens_open = true;
         run(&mut app, &ctx, Vec::new());
+        assert!(app.screens_open);
         assert!(app.new_presentation.is_some());
     }
 
@@ -400,5 +481,38 @@ mod tests {
         assert!(app.live.slide.is_some());
         run(&mut app, &ctx, vec![key(egui::Key::F1)]);
         assert!(app.live.slide.is_none() && app.live.media.is_none());
+    }
+
+    #[test]
+    fn scripture_goes_live_and_refreshes_instead_of_duplicating() {
+        let ctx = egui::Context::default();
+        let mut app = App::in_memory(store::demo_library());
+        app.mode = Mode::Bible;
+        app.scripture.reference = "Ps 23:1-2".into();
+        run(&mut app, &ctx, Vec::new());
+        let r = crate::bible::parse_reference(&app.scripture.reference);
+        let bible = app.bibles[0].clone();
+        crate::ui::scripture::build(&mut app, &bible, r, true);
+        crate::ui::scripture::build(&mut app, &bible, r, true);
+        let count = app.lib.presentations.iter().filter(|p| p.category == "Scripture").count();
+        assert_eq!(count, 1);
+        let live = app.live.live_slide(&app.lib).map(|(_, s)| s.text());
+        assert!(live.is_some_and(|t| t.contains("The LORD is my shepherd")));
+        run(&mut app, &ctx, Vec::new());
+    }
+
+    #[test]
+    fn sound_files_import_as_audio_and_never_paint() {
+        let mut app = App::in_memory(store::demo_library());
+        app.import_media("/music/walk-in.mp3");
+        app.import_media("/pictures/loop.gif");
+        let n = app.lib.media.len();
+        assert!(matches!(app.lib.media[n - 2].source, MediaSource::Audio { .. }));
+        assert!(matches!(app.lib.media[n - 1].source, MediaSource::Image { .. }));
+        // Playing a missing file reports an error instead of failing.
+        let id = app.lib.media[n - 2].id;
+        app.play_audio(id);
+        assert!(app.audio.error.is_some());
+        assert_eq!(app.audio.current, None);
     }
 }

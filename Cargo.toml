@@ -12,6 +12,7 @@ craft-ui = { git = "https://github.com/storytold/craft-libs", rev = "ae2f796b673
 eframe = { version = "0.36", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 egui = "0.36"
+rodio = { version = "0.23", default-features = false, features = ["playback", "mp3", "wav", "flac", "vorbis"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp", "webp"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

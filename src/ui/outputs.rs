@@ -9,38 +9,85 @@ use crate::app::App;
 use crate::live;
 use crate::model::*;
 use crate::render::{self, Painting};
+use crate::store::ScreenPrefs;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Output {
+    Audience,
+    Stage,
+}
+
+impl Output {
+    fn prefs(self, app: &App) -> ScreenPrefs {
+        let o = &app.prefs.get().outputs;
+        match self {
+            Output::Audience => o.audience,
+            Output::Stage => o.stage,
+        }
+    }
+
+    fn set_prefs(self, app: &mut App, value: ScreenPrefs) {
+        if self.prefs(app) != value {
+            app.prefs.update(|p| match self {
+                Output::Audience => p.outputs.audience = value,
+                Output::Stage => p.outputs.stage = value,
+            });
+        }
+    }
+}
+
+fn builder(title: &str, s: ScreenPrefs) -> ViewportBuilder {
+    ViewportBuilder::default()
+        .with_title(title)
+        .with_position([s.x, s.y])
+        .with_inner_size([s.width.max(320.0), s.height.max(180.0)])
+        .with_min_inner_size([320.0, 180.0])
+        .with_fullscreen(s.fullscreen)
+}
 
 pub fn show(app: &mut App, ctx: &egui::Context) {
     if app.audience_open {
-        let builder =
-            ViewportBuilder::default().with_title("PresentCraft — Audience").with_inner_size([960.0, 540.0]).with_min_inner_size([320.0, 180.0]);
-        ctx.show_viewport_immediate(ViewportId::from_hash_of("audience"), builder, |ui, _class| audience(app, ui));
+        let b = builder("PresentCraft — Audience", Output::Audience.prefs(app));
+        ctx.show_viewport_immediate(ViewportId::from_hash_of("audience"), b, |ui, _class| audience(app, ui));
     }
     if app.stage_open {
-        let builder =
-            ViewportBuilder::default().with_title("PresentCraft — Stage").with_inner_size([960.0, 540.0]).with_min_inner_size([320.0, 180.0]);
-        ctx.show_viewport_immediate(ViewportId::from_hash_of("stage"), builder, |ui, _class| stage(app, ui));
+        let b = builder("PresentCraft — Stage", Output::Stage.prefs(app));
+        ctx.show_viewport_immediate(ViewportId::from_hash_of("stage"), b, |ui, _class| stage(app, ui));
     }
 }
 
-fn window_controls(app: &mut App, ui: &Ui, open: bool) -> bool {
-    let ctx = ui.ctx();
-    app.keyboard(ctx);
+/// Shared window handling: shortcuts, close, double-click for full screen, and remembering where
+/// the operator put the window so it opens there next time.
+fn window_controls(app: &mut App, ui: &Ui, which: Output) -> bool {
+    let ctx = ui.ctx().clone();
+    app.keyboard(&ctx);
     if ctx.input(|i| i.viewport().close_requested()) {
         return false;
     }
+    let mut prefs = which.prefs(app);
     let fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
     if ctx.input(|i| i.pointer.button_double_clicked(egui::PointerButton::Primary)) {
-        ctx.send_viewport_cmd(ViewportCommand::Fullscreen(!fullscreen));
-    }
-    if fullscreen && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        prefs.fullscreen = !fullscreen;
+        ctx.send_viewport_cmd(ViewportCommand::Fullscreen(prefs.fullscreen));
+    } else if fullscreen && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        prefs.fullscreen = false;
         ctx.send_viewport_cmd(ViewportCommand::Fullscreen(false));
+    } else if !fullscreen && !prefs.fullscreen {
+        // Only a windowed output's own geometry is worth remembering.
+        let (outer, inner) = ctx.input(|i| (i.viewport().outer_rect, i.viewport().inner_rect));
+        if let (Some(outer), Some(inner)) = (outer, inner) {
+            prefs.x = outer.min.x.round();
+            prefs.y = outer.min.y.round();
+            prefs.width = inner.width().round();
+            prefs.height = inner.height().round();
+        }
     }
-    open
+    which.set_prefs(app, prefs);
+    true
 }
 
 pub fn audience(app: &mut App, ui: &mut Ui) {
-    let open = window_controls(app, ui, true);
+    let open = window_controls(app, ui, Output::Audience);
     app.audience_open = open;
     let rect = ui.max_rect();
     ui.painter().rect_filled(rect, 0.0, Color32::BLACK);
@@ -50,7 +97,7 @@ pub fn audience(app: &mut App, ui: &mut Ui) {
 }
 
 pub fn stage(app: &mut App, ui: &mut Ui) {
-    let open = window_controls(app, ui, true);
+    let open = window_controls(app, ui, Output::Stage);
     app.stage_open = open;
     let rect = ui.max_rect();
     let painter = ui.painter();

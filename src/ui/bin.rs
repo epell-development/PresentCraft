@@ -24,6 +24,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 let before = app.lib.clone();
                 match app.bin_tab {
                     BinTab::Media => media(app, ui),
+                    BinTab::Audio => audio(app, ui),
                     BinTab::Props => props(app, ui),
                     BinTab::Messages => messages(app, ui),
                     BinTab::Timers => timers(app, ui),
@@ -68,7 +69,7 @@ fn media(app: &mut App, ui: &mut Ui) {
         }
     });
     ui.add_space(6.0);
-    let items = app.lib.media.clone();
+    let items: Vec<MediaItem> = app.lib.media.iter().filter(|m| !matches!(m.source, MediaSource::Audio { .. })).cloned().collect();
     let playlists: Vec<(Id, String)> = app.lib.playlists.iter().map(|p| (p.id, p.name.clone())).collect();
     let mut remove = None;
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
@@ -136,7 +137,7 @@ fn media(app: &mut App, ui: &mut Ui) {
                                         color_row(ui, "Top", top);
                                         color_row(ui, "Bottom", bottom);
                                     }
-                                    MediaSource::Image { .. } => {}
+                                    MediaSource::Image { .. } | MediaSource::Audio { .. } => {}
                                 }
                             }
                         });
@@ -438,5 +439,74 @@ fn themes(app: &mut App, ui: &mut Ui) {
                 p.theme = None;
             }
         }
+    }
+}
+
+fn audio(app: &mut App, ui: &mut Ui) {
+    ui.horizontal(|ui| {
+        ui.add(
+            egui::TextEdit::singleline(&mut app.import_path)
+                .hint_text("MP3, WAV, FLAC or Ogg file path, or drop files on the window")
+                .desired_width(360.0),
+        );
+        if ui.button("Import").clicked() {
+            let path = std::mem::take(&mut app.import_path);
+            app.import_media(&path);
+        }
+    });
+    ui.add_space(6.0);
+    let items: Vec<(Id, String, String)> = app
+        .lib
+        .media
+        .iter()
+        .filter_map(|m| match &m.source {
+            MediaSource::Audio { path } => Some((m.id, m.name.clone(), path.clone())),
+            _ => None,
+        })
+        .collect();
+    if items.is_empty() {
+        ui.label(RichText::new("No audio yet. Import a file, then click it to play, or give a slide an audio cue.").color(theme::TEXT_DIM));
+    }
+    let playlists: Vec<(Id, String)> = app.lib.playlists.iter().map(|p| (p.id, p.name.clone())).collect();
+    let mut remove = None;
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        for (id, name, path) in items {
+            ui.push_id(id, |ui| {
+                ui.horizontal(|ui| {
+                    let playing = app.audio.current == Some(id);
+                    if ui.add(egui::Button::new(if playing { "■ Stop" } else { "Play" }).selected(playing).min_size(vec2(64.0, 0.0))).clicked() {
+                        if playing {
+                            app.audio.stop();
+                        } else {
+                            app.play_audio(id);
+                        }
+                    }
+                    let r = ui.label(RichText::new(&name).color(if playing { theme::LIVE } else { theme::TEXT }));
+                    r.on_hover_text(&path);
+                    ui.label(RichText::new(&path).size(10.0).color(theme::TEXT_DIM));
+                    ui.menu_button("…", |ui| {
+                        ui.menu_button("Add to playlist", |ui| {
+                            for (pl, pl_name) in &playlists {
+                                if ui.button(pl_name).clicked() {
+                                    let item = app.lib.next_id();
+                                    if let Some(p) = app.lib.playlists.iter_mut().find(|p| p.id == *pl) {
+                                        p.items.push(PlaylistItem::Media { id: item, media: id });
+                                    }
+                                }
+                            }
+                        });
+                        if ui.button(RichText::new("Delete").color(theme::DANGER)).clicked() {
+                            remove = Some(id);
+                        }
+                    });
+                });
+            });
+        }
+    });
+    if let Some(id) = remove {
+        if app.audio.current == Some(id) {
+            app.audio.stop();
+        }
+        app.lib.remove_media(id);
     }
 }

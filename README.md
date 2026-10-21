@@ -17,7 +17,8 @@ open in their own window, ready to drag onto a projector or confidence monitor.
 cargo run --release
 ```
 
-On Linux the usual X11/Wayland desktop libraries are needed (`libxkbcommon-x11`, a GL driver).
+On Linux the usual X11/Wayland desktop libraries are needed (`libxkbcommon-x11`, a GL driver), and
+ALSA headers to build audio support (`libasound2-dev` on Debian and Ubuntu).
 
 | Variable | Effect |
 |---|---|
@@ -42,15 +43,23 @@ On Linux the usual X11/Wayland desktop libraries are needed (`libxkbcommon-x11`,
   alignment, shadow, outline, caps, fills, slide background, media action and stage notes.
 - **Reflow mode.** Edit the whole presentation as text; cues, notes and group colors carry over.
 - **Themes.** Save a slide's look as a theme and apply it to a presentation.
-- **Media bin.** Images (PNG, JPEG, GIF, BMP, WebP) by path or drag-and-drop, plus generated colors
-  and gradients; fill, fit or stretch scaling. A slide can fire media when it goes live.
+- **Media bin.** Images (PNG, JPEG, BMP, WebP) and looping animated GIFs by path or drag-and-drop,
+  plus generated colors and gradients; fill, fit or stretch scaling. A slide can fire media when it
+  goes live.
+- **Audio.** MP3, WAV, FLAC and Ogg Vorbis on their own layer with play/pause, seek, volume and
+  Clear Audio (F7); a slide can start a track as its audio cue, and Clear All silences it.
+- **Bible.** Type a reference ("John 3:16-18", "Ps 23", "1 Cor 13:4-8") or search words, choose
+  verses per slide, verse numbers and a theme, then go live or add the passage to the library.
+  Translations are imported from text files (one verse per line); a public-domain KJV sample is
+  built in.
 - **Props.** Lower thirds and corner bugs that stay up while slides change.
 - **Messages.** Templates with `{tokens}` filled in at show time, and `{timer}` for live countdowns.
 - **Timers.** Countdown, count down to a time of day, and elapsed, with optional overrun.
 - **Stage display.** Current and next slide, notes, clock, running timer and a flashing stage
   message, in three layouts.
-- **Outputs.** Audience and stage windows (Ctrl+1 / Ctrl+2); double-click a window to make it
-  full screen, Esc to leave.
+- **Outputs.** Audience and stage windows (Ctrl+1 / Ctrl+2). The Screens window sets where each
+  one opens, its size and full screen, with a preset for the display to the right; windows also
+  remember where you drag them. Double-click an output for full screen, Esc to leave.
 - **Safe saving.** The library autosaves a second after each change with crash-safe atomic writes,
   and a damaged library file is never overwritten.
 
@@ -58,10 +67,11 @@ On Linux the usual X11/Wayland desktop libraries are needed (`libxkbcommon-x11`,
 |---|---|
 | ![Edit mode](docs/screenshots/edit.png) | ![Outputs](docs/screenshots/outputs.png) |
 
+![Bible mode](docs/screenshots/bible.png)
+
 ## Roadmap
 
-Planned next rounds: video and audio playback with transport controls, a Bible/scripture module,
-picking which display each output uses, stage layout editor, keyboard shortcut editor, slide
+Planned next rounds: video playback, a stage layout editor, keyboard shortcut editor, slide
 transitions per slide, macros and looks, NDI and network remote control, and import of common
 song formats.
 

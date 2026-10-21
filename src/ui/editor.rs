@@ -119,7 +119,8 @@ fn canvas_toolbar(app: &mut App, ui: &mut Ui, slide: &mut Slide) {
             app.selected_element = Some(id);
         }
         ui.menu_button("▣  Media", |ui| {
-            let items: Vec<(Id, String)> = app.lib.media.iter().map(|m| (m.id, m.name.clone())).collect();
+            let items: Vec<(Id, String)> =
+                app.lib.media.iter().filter(|m| !matches!(m.source, MediaSource::Audio { .. })).map(|m| (m.id, m.name.clone())).collect();
             for (mid, name) in items {
                 if ui.button(name).clicked() {
                     let id = app.lib.next_id();
@@ -255,7 +256,10 @@ fn color_edit(ui: &mut Ui, c: &mut Rgba) {
 }
 
 fn inspector(app: &mut App, ui: &mut Ui, slide: &mut Slide, theme_action: &mut Option<ThemeAction>) {
-    let media: Vec<(Id, String)> = app.lib.media.iter().map(|m| (m.id, m.name.clone())).collect();
+    let media: Vec<(Id, String)> =
+        app.lib.media.iter().filter(|m| !matches!(m.source, MediaSource::Audio { .. })).map(|m| (m.id, m.name.clone())).collect();
+    let audio: Vec<(Id, String)> =
+        app.lib.media.iter().filter(|m| matches!(m.source, MediaSource::Audio { .. })).map(|m| (m.id, m.name.clone())).collect();
     if let Some(e) = app.selected_element.and_then(|id| slide.elements.iter_mut().find(|e| e.id == id)) {
         ui.heading("Element");
         ui.horizontal(|ui| {
@@ -334,6 +338,14 @@ fn inspector(app: &mut App, ui: &mut Ui, slide: &mut Slide, theme_action: &mut O
             ui.selectable_value(&mut slide.media_action, None, "None");
             for (id, name) in &media {
                 ui.selectable_value(&mut slide.media_action, Some(*id), name);
+            }
+        });
+    egui::ComboBox::from_label("Audio action")
+        .selected_text(slide.audio_action.and_then(|m| audio.iter().find(|(id, _)| *id == m)).map(|(_, n)| n.as_str()).unwrap_or("None"))
+        .show_ui(ui, |ui| {
+            ui.selectable_value(&mut slide.audio_action, None, "None");
+            for (id, name) in &audio {
+                ui.selectable_value(&mut slide.audio_action, Some(*id), name);
             }
         });
     ui.label("Notes (stage display)");

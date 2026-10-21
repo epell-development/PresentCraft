@@ -47,6 +47,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 clear_buttons(app, ui, now);
                 ui.add_space(4.0);
                 next_preview(app, ui);
+                audio_transport(app, ui);
                 show_settings(app, ui);
                 stage_controls(app, ui);
                 timers(app, ui, now);
@@ -57,18 +58,25 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
 fn clear_buttons(app: &mut App, ui: &mut Ui, now: Instant) {
     let live = &app.live;
+    let audio_on = app.audio.current.is_some();
     let states = [
-        (Icon::ClearAll, "Clear All", "F1", live.slide.is_some() || live.media.is_some() || !live.props.is_empty() || live.message.is_some()),
+        (
+            Icon::ClearAll,
+            "Clear All",
+            "F1",
+            live.slide.is_some() || live.media.is_some() || !live.props.is_empty() || live.message.is_some() || audio_on,
+        ),
         (Icon::Slide, "Slide", "F2", live.slide.is_some()),
         (Icon::Media, "Media", "F3", live.media.is_some()),
         (Icon::Props, "Props", "F4", !live.props.is_empty()),
         (Icon::Message, "Messages", "F5", live.message.is_some()),
         (Icon::Logo, "Logo", "F6", live.logo_on),
+        (Icon::Audio, "Audio", "F7", audio_on),
     ];
     let mut clicked = None;
     ui.horizontal(|ui| {
         ui.add_space(6.0);
-        let size = ((ui.available_width() - 6.0 * 7.0) / 6.0).clamp(30.0, 60.0);
+        let size = ((ui.available_width() - 6.0 * 8.0) / 7.0).clamp(28.0, 56.0);
         for (i, (icon, label, key, active)) in states.into_iter().enumerate() {
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 1.0;
@@ -80,9 +88,16 @@ fn clear_buttons(app: &mut App, ui: &mut Ui, now: Instant) {
             });
         }
     });
+    if clicked == Some(0) {
+        app.clear_all();
+        return;
+    }
+    if clicked == Some(6) {
+        app.audio.stop();
+        return;
+    }
     let live = &mut app.live;
     match clicked {
-        Some(0) => live.clear_all(now),
         Some(1) => live.clear_slide(now),
         Some(2) => live.clear_media(now),
         Some(3) => live.clear_props(),
@@ -146,7 +161,8 @@ fn show_settings(app: &mut App, ui: &mut Ui) {
         if ui.checkbox(&mut adv, "Continue into next playlist item").changed() {
             app.prefs.update(|p| p.show.advance_through_playlist = adv);
         }
-        let media: Vec<(Id, String)> = app.lib.media.iter().map(|m| (m.id, m.name.clone())).collect();
+        let media: Vec<(Id, String)> =
+            app.lib.media.iter().filter(|m| !matches!(m.source, MediaSource::Audio { .. })).map(|m| (m.id, m.name.clone())).collect();
         egui::ComboBox::from_label("Logo")
             .selected_text(app.live.logo.and_then(|l| media.iter().find(|(id, _)| *id == l)).map(|(_, n)| n.as_str()).unwrap_or("None"))
             .show_ui(ui, |ui| {
@@ -238,5 +254,52 @@ pub fn timer_row(live: &mut Live, ui: &mut Ui, t: &Timer, now: Instant, style: &
             ui.label(RichText::new(text).monospace().size(15.0).color(color));
             ui.label(RichText::new(&t.name).color(theme::TEXT_DIM));
         });
+    });
+}
+
+fn audio_transport(app: &mut App, ui: &mut Ui) {
+    if app.audio.current.is_none() && app.audio.error.is_none() {
+        return;
+    }
+    section_header(ui, "Audio", |_| {});
+    let style = theme::toolbar_button();
+    egui::Frame::new().inner_margin(8).show(ui, |ui| {
+        if let Some(err) = app.audio.error.clone() {
+            ui.horizontal(|ui| {
+                ui.add(egui::Label::new(RichText::new(err).color(theme::DANGER).size(11.0)).wrap());
+                if ui.small_button("Dismiss").clicked() {
+                    app.audio.error = None;
+                }
+            });
+        }
+        let Some(id) = app.audio.current else { return };
+        let name = app.lib.media_item(id).map(|m| m.name.clone()).unwrap_or_default();
+        ui.label(RichText::new(name).color(theme::LIVE));
+        ui.horizontal(|ui| {
+            let paused = app.audio.is_paused();
+            if icons::small(ui, if paused { Icon::Play } else { Icon::Pause }, if paused { "Play" } else { "Pause" }, 22.0, &style).clicked() {
+                app.audio.toggle_pause();
+            }
+            if icons::small(ui, Icon::ClearAll, "Stop", 22.0, &style).clicked() {
+                app.audio.stop();
+            }
+            let pos = app.audio.position();
+            let total = app.audio.duration;
+            let text = match total {
+                Some(t) => format!("{} / {}", live::format_clock(pos.as_secs() as i64), live::format_clock(t.as_secs() as i64)),
+                None => live::format_clock(pos.as_secs() as i64),
+            };
+            ui.label(RichText::new(text).monospace());
+        });
+        if let Some(total) = app.audio.duration.filter(|t| !t.is_zero()) {
+            let mut at = app.audio.position().as_secs_f32();
+            if ui.add(egui::Slider::new(&mut at, 0.0..=total.as_secs_f32()).show_value(false).text("Position")).changed() {
+                app.audio.seek(Duration::from_secs_f32(at));
+            }
+        }
+        let mut v = app.audio.volume();
+        if ui.add(egui::Slider::new(&mut v, 0.0..=1.5).text("Volume")).changed() {
+            app.audio.set_volume(v);
+        }
     });
 }

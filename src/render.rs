@@ -10,11 +10,36 @@ use egui::{Align, Color32, CornerRadius, FontId, Mesh, Painter, Pos2, Rect, Stro
 use crate::live::Live;
 use crate::model::*;
 
+/// A decoded image: one frame for a still, several with their durations for an animated GIF.
+pub struct Frames {
+    frames: Vec<(TextureHandle, f32)>,
+    total: f32,
+}
+
+impl Frames {
+    /// The frame to show `t` seconds into the loop.
+    fn at(&self, t: f64) -> Option<&TextureHandle> {
+        if self.frames.len() <= 1 || self.total <= 0.0 {
+            return self.frames.first().map(|(t, _)| t);
+        }
+        let mut left = (t.rem_euclid(f64::from(self.total))) as f32;
+        for (tex, d) in &self.frames {
+            if left < *d {
+                return Some(tex);
+            }
+            left -= d;
+        }
+        self.frames.last().map(|(t, _)| t)
+    }
+}
+
 /// Decoded media textures, keyed by media id. Failures are remembered so a missing file is not
 /// re-read every frame; `forget` clears an entry when the item changes.
 #[derive(Default)]
 pub struct MediaCache {
-    textures: HashMap<Id, Result<TextureHandle, String>>,
+    textures: HashMap<Id, Result<Frames, String>>,
+    /// Set when an animated image was painted this frame, so the app keeps repainting.
+    pub animating: bool,
 }
 
 impl MediaCache {
@@ -22,8 +47,12 @@ impl MediaCache {
         let MediaSource::Image { path } = &item.source else {
             return None;
         };
-        let entry = self.textures.entry(item.id).or_insert_with(|| load_texture(ctx, item.id, path));
-        entry.as_ref().ok()
+        let entry = self.textures.entry(item.id).or_insert_with(|| load_frames(ctx, item.id, path));
+        let frames = entry.as_ref().ok()?;
+        if frames.frames.len() > 1 {
+            self.animating = true;
+        }
+        frames.at(ctx.input(|i| i.time))
     }
 
     pub fn error(&self, id: Id) -> Option<&str> {
@@ -35,14 +64,40 @@ impl MediaCache {
     }
 }
 
-fn load_texture(ctx: &egui::Context, id: Id, path: &str) -> Result<TextureHandle, String> {
+/// Animated GIFs keep at most this many frames, so a long clip cannot exhaust GPU memory.
+const MAX_FRAMES: usize = 600;
+
+fn upload(ctx: &egui::Context, name: String, img: image::RgbaImage) -> TextureHandle {
+    let size = [img.width() as usize, img.height() as usize];
+    let color = egui::ColorImage::from_rgba_unmultiplied(size, img.as_raw());
+    ctx.load_texture(name, color, egui::TextureOptions::LINEAR)
+}
+
+fn load_frames(ctx: &egui::Context, id: Id, path: &str) -> Result<Frames, String> {
+    if path.to_ascii_lowercase().ends_with(".gif") {
+        use image::AnimationDecoder;
+        let file = std::fs::File::open(path).map_err(|e| format!("{path}: {e}"))?;
+        let decoder = image::codecs::gif::GifDecoder::new(std::io::BufReader::new(file)).map_err(|e| format!("{path}: {e}"))?;
+        let mut frames = Vec::new();
+        let mut total = 0.0;
+        for (i, frame) in decoder.into_frames().take(MAX_FRAMES).enumerate() {
+            let frame = frame.map_err(|e| format!("{path}: {e}"))?;
+            let (num, den) = frame.delay().numer_denom_ms();
+            // Browsers treat delays under 20 ms as 100 ms; matching that keeps GIFs at their usual speed.
+            let ms = if den == 0 { 100.0 } else { num as f32 / den as f32 };
+            let secs = if ms < 20.0 { 0.1 } else { ms / 1000.0 };
+            total += secs;
+            frames.push((upload(ctx, format!("media-{id}-{i}"), frame.into_buffer()), secs));
+        }
+        if frames.is_empty() {
+            return Err(format!("{path}: no frames"));
+        }
+        return Ok(Frames { frames, total });
+    }
     let img = image::open(path).map_err(|e| format!("{path}: {e}"))?;
     // Output never needs more than 4K; large photos are scaled down to keep GPU memory sane.
     let img = if img.width() > 3840 || img.height() > 2160 { img.resize(3840, 2160, image::imageops::FilterType::Triangle) } else { img };
-    let rgba = img.to_rgba8();
-    let size = [rgba.width() as usize, rgba.height() as usize];
-    let color = egui::ColorImage::from_rgba_unmultiplied(size, rgba.as_raw());
-    Ok(ctx.load_texture(format!("media-{id}"), color, egui::TextureOptions::LINEAR))
+    Ok(Frames { frames: vec![(upload(ctx, format!("media-{id}"), img.to_rgba8()), 0.0)], total: 0.0 })
 }
 
 /// Everything needed to paint: the library, cached textures and the egui context for loading.
@@ -90,6 +145,8 @@ impl Painting<'_> {
                 mesh.add_triangle(0, 2, 3);
                 painter.add(mesh);
             }
+            // Sound has no picture; the audio layer plays it.
+            MediaSource::Audio { .. } => {}
             MediaSource::Image { .. } => {
                 let fit = item.fit;
                 let ctx = self.ctx.clone();

@@ -8,6 +8,7 @@ pub mod icons;
 pub mod outputs;
 pub mod preview;
 pub mod reflow;
+pub mod scripture;
 pub mod sidebar;
 pub mod theme;
 pub mod toolbar;
